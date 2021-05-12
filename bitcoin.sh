@@ -88,6 +88,10 @@ checksum() {
     head -c 8
 }
 
+checksum_ripemd160() {
+    pack "$1" | ripemd160 | head -c 8
+}
+
 toEthereumAddressWithChecksum() {
     local addrLower=$(sed -r -e 's/[[:upper:]]/\l&/g' <<< "$1")
     local addrHash=$(echo -n "$addrLower" | sha3-256 | xxd -p -c32)
@@ -111,10 +115,13 @@ checkBitcoinAddress() {
     fi
 }
 
-hash160() {
-    openssl dgst -sha256 -binary |
+ripemd160() {
     openssl dgst -rmd160 -binary |
     unpack
+}
+
+hash160() {
+    openssl dgst -sha256 -binary | ripemd160
 }
 
 sha3-256() {
@@ -128,8 +135,15 @@ sys.stdout.buffer.write(hash.digest())
 }
 
 hexToAddress() {
-    local x="$(printf "%2s%${3:-40}s" ${2:-00} $1 | sed 's/ /0/g')"
-    encodeBase58 "$x$(checksum "$x")"
+    local c=${2:-00}
+    local x
+    if [[ $c == "EOS" ]]; then
+        x="$(printf "%66s" $1 | sed 's/ /0/g')"
+        encodeBase58 "$x$(checksum_ripemd160 "$x")"
+    else
+        x="$(printf "%2s%${3:-40}s" ${2:-00} $1 | sed 's/ /0/g')"
+        encodeBase58 "$x$(checksum "$x")"
+    fi
     echo
 }
 
@@ -147,6 +161,12 @@ newBitcoinKey() {
         local exponent="${BASH_REMATCH[1]}"
         local full_wif="$(hexToAddress "$exponent" 80 64)"
         local comp_wif="$(hexToAddress "${exponent}01" 80 66)"
+        local p2pkh_prefix="00"
+        local p2sh_prefix="05"
+        case $2 in
+            doge) p2pkh_prefix="1e"; p2sh_prefix="16";;
+            lite) p2pkh_prefix="30"; p2sh_prefix="32";;
+        esac
         dc -e "$ec_dc lG I16i${exponent^^}ri lMx 16olm~ n[ ]nn" |
         {
             read y x
@@ -155,17 +175,18 @@ newBitcoinKey() {
             [[ "$y" =~ [02468ACE]$ ]] && y_parity="02" || y_parity="03"
             full_pubkey="04${X}${Y}"
             comp_pubkey="${y_parity}${X}"
-            full_p2pkh_addr="$(hexToAddress "$(pack "$full_pubkey" | hash160)")"
-            comp_p2pkh_addr="$(hexToAddress "$(pack "$comp_pubkey" | hash160)")"
-            full_p2sh_addr="$(hexToAddress "$(pack "41${full_pubkey}AC" | hash160)" 05)"
-            comp_p2sh_addr="$(hexToAddress "$(pack "21${comp_pubkey}AC" | hash160)" 05)"
+            full_p2pkh_addr="$(hexToAddress "$(pack "$full_pubkey" | hash160)" $p2pkh_prefix)"
+            comp_p2pkh_addr="$(hexToAddress "$(pack "$comp_pubkey" | hash160)" $p2pkh_prefix)"
+            full_p2sh_addr="$(hexToAddress "$(pack "41${full_pubkey}AC" | hash160)" $p2sh_prefix)"
+            comp_p2sh_addr="$(hexToAddress "$(pack "21${comp_pubkey}AC" | hash160)" $p2sh_prefix)"
             # Note: Witness uses only compressed public key
-            comp_p2wpkh_addr="$(hexToAddress "$(pack "0014$(pack "$comp_pubkey" | hash160)" | hash160)" 05)"
-            full_multisig_1_of_1_addr="$(hexToAddress "$(pack "5141${full_pubkey}51AE" | hash160)" 05)"
-            comp_multisig_1_of_1_addr="$(hexToAddress "$(pack "5121${comp_pubkey}51AE" | hash160)" 05)"
+            comp_p2wpkh_addr="$(hexToAddress "$(pack "0014$(pack "$comp_pubkey" | hash160)" | hash160)" $p2sh_prefix)"
+            full_multisig_1_of_1_addr="$(hexToAddress "$(pack "5141${full_pubkey}51AE" | hash160)" $p2sh_prefix)"
+            comp_multisig_1_of_1_addr="$(hexToAddress "$(pack "5121${comp_pubkey}51AE" | hash160)" $p2sh_prefix)"
             qtum_addr="$(hexToAddress "$(pack "${comp_pubkey}" | hash160)" 3a)"
             ethereum_addr="$(pack "$X$Y" | sha3-256 | unpack | tail -c 40)"
             tron_addr="$(hexToAddress "$ethereum_addr" 41)"
+            eos_addr="EOS$(hexToAddress "$comp_pubkey" EOS)"
             echo ---
             echo "secret exponent:          0x$exponent"
             echo "public key:"
@@ -180,6 +201,7 @@ newBitcoinKey() {
             echo "    Bitcoin (1-of-1):     $comp_multisig_1_of_1_addr"
             echo " ---- other networks ----"
             echo "    Qtum:                 $qtum_addr"
+            echo "    EOS:                  $eos_addr"
             echo
             echo "uncompressed addresses:"
             echo "    WIF:                  $full_wif"
