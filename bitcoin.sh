@@ -159,14 +159,16 @@ newBitcoinKey() {
     elif [[ "${1^^}" =~ ^0X([0-9A-F]{1,})$ ]]
     then
         local exponent="${BASH_REMATCH[1]}"
-        local full_wif="$(hexToAddress "$exponent" 80 64)"
-        local comp_wif="$(hexToAddress "${exponent}01" 80 66)"
         local p2pkh_prefix="00"
         local p2sh_prefix="05"
         case $2 in
             doge) p2pkh_prefix="1e"; p2sh_prefix="16";;
             lite) p2pkh_prefix="30"; p2sh_prefix="32";;
+            dash) p2pkh_prefix="4c"; p2sh_prefix="10";;
         esac
+        local wif_prefix="$(dc -e "16o16i 80 ${p2pkh_prefix^^} +p")"
+        local full_wif="$(hexToAddress "$exponent" "$wif_prefix" 64)"
+        local comp_wif="$(hexToAddress "${exponent}01" "$wif_prefix" 66)"
         dc -e "$ec_dc lG I16i${exponent^^}ri lMx 16olm~ n[ ]nn" |
         {
             read y x
