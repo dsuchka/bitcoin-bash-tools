@@ -125,13 +125,7 @@ hash160() {
 }
 
 sha3-256() {
-    python3 -c "
-import sys
-from Crypto.Hash import keccak
-data = sys.stdin.buffer.read()
-hash = keccak.new(digest_bits=256).update(data)
-sys.stdout.buffer.write(hash.digest())
-"
+    openssl dgst -keccak-256 -binary
 }
 
 hexToAddress() {
